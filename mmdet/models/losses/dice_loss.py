@@ -61,12 +61,46 @@ def dice_loss(pred,
     loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
     return loss
 
+def mask_dice_loss(pred,
+              target,
+              label,
+              weight=None,
+              eps=1e-3,
+              reduction='mean',
+              naive_dice=False,
+              avg_factor=None):
+    
+    num_rois = pred.size()[0]
+    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
+    pred_slice = pred[inds, label].squeeze(1)
+
+    input = pred_slice.flatten(1)
+    target = target.flatten(1).float()
+
+    a = torch.sum(input * target, 1)
+    if naive_dice:
+        b = torch.sum(input, 1)
+        c = torch.sum(target, 1)
+        d = (2 * a + eps) / (b + c + eps)
+    else:
+        b = torch.sum(input * input, 1) + eps
+        c = torch.sum(target * target, 1) + eps
+        d = (2 * a) / (b + c)
+
+    loss = 1 - d
+    if weight is not None:
+        assert weight.ndim == loss.ndim
+        assert len(weight) == len(pred)
+    loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
+    return loss
+
 
 @MODELS.register_module()
 class DiceLoss(nn.Module):
 
     def __init__(self,
                  use_sigmoid=True,
+                 use_mask = False,
                  activate=True,
                  reduction='mean',
                  naive_dice=False,
@@ -99,6 +133,11 @@ class DiceLoss(nn.Module):
         self.loss_weight = loss_weight
         self.eps = eps
         self.activate = activate
+        self.use_mask = use_mask
+        if self.use_mask:
+            self.cls_criterion = mask_dice_loss
+        else :
+            self.cls_criterion = dice_loss
 
     def forward(self,
                 pred,
@@ -134,7 +173,7 @@ class DiceLoss(nn.Module):
             else:
                 raise NotImplementedError
 
-        loss = self.loss_weight * dice_loss(
+        loss = self.loss_weight * self.cls_criterion(
             pred,
             target,
             weight,
