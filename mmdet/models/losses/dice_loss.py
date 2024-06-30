@@ -61,15 +61,16 @@ def dice_loss(pred,
     loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
     return loss
 
+
 def mask_dice_loss(pred,
-              target,
-              label,
-              weight=None,
-              eps=1e-3,
-              reduction='mean',
-              naive_dice=False,
-              avg_factor=None):
-    
+                   target,
+                   label,
+                   weight=None,
+                   eps=1e-3,
+                   reduction='mean',
+                   naive_dice=False,
+                   avg_factor=None):
+
     num_rois = pred.size()[0]
     inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
     pred_slice = pred[inds, label].squeeze(1)
@@ -78,10 +79,19 @@ def mask_dice_loss(pred,
     target = target.flatten(1).float()
 
     a = torch.sum(input * target, 1)
+    neg_input = 1-input
+    neg_target = 1-target
+    tp = torch.sum(input * target, 1)
+    fp = torch.sum(input * neg_target, 1)
+    fn = torch.sum(neg_input * target, 1)
+    tn = torch.sum(neg_input * neg_target, 1)
     if naive_dice:
-        b = torch.sum(input, 1)
-        c = torch.sum(target, 1)
-        d = (2 * a + eps) / (b + c + eps)
+        # b = torch.sum(input, 1)
+        # c = torch.sum(target, 1)
+        # d = (2 * a + eps) / (b + c + eps)
+        d1 = (2 * tp + eps) / (2 * tp + fp + fn + eps)
+        d2 = (2 * tn + eps) / (2 * tn + fp + fn + eps)
+        d = (d1 + d2) / 2 
     else:
         b = torch.sum(input * input, 1) + eps
         c = torch.sum(target * target, 1) + eps
@@ -100,7 +110,7 @@ class DiceLoss(nn.Module):
 
     def __init__(self,
                  use_sigmoid=True,
-                 use_mask = False,
+                 use_mask=False,
                  activate=True,
                  reduction='mean',
                  naive_dice=False,
@@ -136,7 +146,7 @@ class DiceLoss(nn.Module):
         self.use_mask = use_mask
         if self.use_mask:
             self.cls_criterion = mask_dice_loss
-        else :
+        else:
             self.cls_criterion = dice_loss
 
     def forward(self,
